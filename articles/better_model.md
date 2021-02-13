@@ -6,8 +6,8 @@
 
 「より良い」機械学習モデルとは、以下の3点の条件を満たすものをさします。
 
-* 性能が優れていること
-* 処理速度がすぐれていること
+* 性能がすぐれていること
+* 処理効率がよいこと
 * 分析がしやすいこと
 
 このレシピでは、文章分類のタスクの改善に取組、
@@ -41,10 +41,164 @@ Google Colaboratory
 
 ### 材料
 
-livedoor ニュースコーパス
-https://www.rondhuit.com/download.html#ldcc
+livedoor ニュースコーパス https://www.rondhuit.com/download.html#ldcc
+
+## 良い機械学習モデルをつくるには何をするか
+
+レシピ概要で記載したとおり、より良い機械学習モデルとは以下の3点をさします。
+
+* 性能がすぐれていること
+* 処理効率がよいこと
+* 分析がしやすいこと
+
+
+### 性能がすぐれていること
 
 
 
+### 処理効率がよいこと
 
 
+
+### 分析がしやすいこと
+
+
+
+上記の視点で「より良い」機械学習モデルをつくるには、
+「データ前処理」、「ハイパーパラメータのチューニング」を実戦的に学んでいきます。
+
+ただ単に最終系のコードを提示するだけでなく、改善の過程も残しています。
+実務に役立つノウハウを提供できれば、幸いです。
+
+## 調理
+
+### 道具の準備
+
+必要な道具と材料をそろえます。
+
+まず道具ですが、ベースの動作環境は、Google Colaboratoryにだいたいのものは揃っているので、
+追加で用意する必要があるのは、形態素解析ツールであるsudachiのみになります。
+
+* sudachipy
+* sudachidict-core
+* sortedcontainers
+
+以下のコマンドでインストールしてください。
+
+```
+%%bash
+pip install sudachipy==0.5.1 sudachidict-core==20201223.post1 sortedcontainers==2.1.0
+```
+
+インストール後は、Colaboratoryのメニューから"ランタイム>ランタイム" を再起動してください。
+※ 実施しないとインストールした道具がロードされないので注意
+
+### 材料を揃える
+
+livedoor ニュースコーパスのデータセットをダウンロード&&展開します。 
+
+```
+%%bash
+wget https://www.rondhuit.com/download/ldcc-20140209.tar.gz
+tar xzf ldcc-20140209.tar.gz
+```
+
+展開すると直下にディレクトリ`text`というディレクトリがあり、その下に9つのディレクトリがあります。 
+
+```
+topic-news
+sports-watch
+kaden-channel
+smax
+livedoor-homme
+it-life-hack
+dokujo-tsushin
+peachy
+movie-enter
+```
+
+個々のディレクトリにはニュース記事が入っています。 
+ディレクトリがニュースのカテゴリにあたり、その直下にニュースの記事があります。 
+
+```
+# 独女通信の例
+./text/
+├── CHANGES.txt
+├── dokujo-tsushin
+│   ├── dokujo-tsushin-4778030.txt
+│   ├── dokujo-tsushin-4778031.txt
+│   ├── dokujo-tsushin-4782522.txt
+│   ├── dokujo-tsushin-4788357.txt
+│   ├── dokujo-tsushin-4788362.txt
+
+```
+
+### データセットの準備
+
+livedoorのニュース記事を対応するカテゴリに分類していくタスクに取り組みます。 
+そのためのデータセットを準備します。 
+
+```python
+from pprint import pprint
+import os
+
+#
+# テキスト直下のディレクトリ一覧を取得(これがカテゴリになる。)
+#
+dirlist = os.listdir('text')
+category_list = {}
+i=0
+for dirname in dirlist:
+    if dirname[-3:] != 'txt':
+        category_list[str(i)] = dirname
+        i+=1
+
+#
+# データセットを作成して、ファイルに出力する。
+#　　ファイルはtsv形式で、ファイル名、ラベルid、カテゴリ名、テキストを出力する。
+#
+with open('dataset.tsv', 'w') as f_out:
+    for label, category in category_list.items():
+        path = './text/{}/'.format(category)
+        filelist = os.listdir(path)
+        filelist.remove('LICENSE.txt')
+        for filename in filelist:
+            with open(path + filename, 'r') as f_in:
+                # テキストはタイトルのみ取得　(本文は学習対象にしない)
+                text = f_in.readlines()[2]
+                # カラム生成
+                out_row = [filename, label, category, text]
+                f_out.write("\t".join(out_row))
+```
+
+`dataset.tsv`というファイルが生成されて、以下のようなデータがあれば、成功です。 
+
+```
+topic-news-6612237.txt	0	topic-news	神戸「サンテレビ」、プロ野球中継で放送事故
+topic-news-6298663.txt	0	topic-news	フジで午後のワイドショーが復活、韓流推し反対デモの影響は「関係ない」に物議
+topic-news-6625187.txt	0	topic-news	「全てのトイレを和式に」 野村ホールディングス株主の珍提案が海外で話題に
+topic-news-6118456.txt	0	topic-news	女性教授が男子生徒に「なめるな」「テクニシャン」などと発言し提訴される
+topic-news-6657046.txt	0	topic-news	「週刊文春」でAKB指原交際報道、衝撃内容にファン「絶対許さない」
+```
+
+データをpandasでロードします。
+ロード時は必ずランダムサンプリングを実施してください。 
+実施しない場合は、データに偏りが出て、正確な検証ができなくなります。 
+```python
+import pandas as pd
+df = pd.read_table(
+    'dataset.tsv',
+    names=['filename', 'label', 'category', 'text']
+    ).sample(frac=1, random_state=0).reset_index(drop=True)
+```
+
+最後にデータを学習・検証・テスト用=7:2:1に分割して完了です。 
+
+```python
+N = len(df)
+train_df = df[:int(N * 0.7)] # 学習
+dev_df = df[len(train_df): len(train_df) + int(N * 0.2)] # 検証
+test_df = df[len(train_df) + len(dev_df):] # テスト
+```
+
+### データの前処理
