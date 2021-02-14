@@ -1,6 +1,5 @@
 # 「より良い」機械学習モデルの構築方法を学べるレシピ
 
-B
 ## レシピの概要
 
 このレシピは、「より良い」機械学習モデルの構築方法を学べるレシピです。
@@ -17,7 +16,7 @@ B
 ### 前提知識
 
 * python (基本構文であるif, for などが理解できる。)
-* sklearn, pandasなどのライブラリを扱える(写経できるだけでもよい)
+* sklearn, pandasなどのライブラリを扱える(写経できる)
 * 機械学習の教師あり学習の概念がわかる
 
 ### 達成できること
@@ -39,6 +38,8 @@ Google Colaboratory
 * pandas
 * matplotlib
 * seaborn
+* numpy
+* scipy
 
 ### 材料
 
@@ -51,7 +52,6 @@ livedoor ニュースコーパス https://www.rondhuit.com/download.html#ldcc
 * 性能がよいこと
 * 処理速度がはやいこと
 * リソース使用量が少ないこと
-
 
 ### 性能がよいこと
 
@@ -68,7 +68,7 @@ livedoor ニュースコーパス https://www.rondhuit.com/download.html#ldcc
 3つの項目のうち、何を重視すべきかは、タスクによって異なります。
 
 多くの機械学習系の記事は、性能を上げるところを重視しているので、
-この記事では「処理速度」と「リソース使用量」の改善について書いていきいきます。 
+この記事では「処理速度」と「リソース使用量」の改善をメインとしていきます。 
 
 ただ単に最終系のコードを提示するだけでなく、改善の過程も残しています。
 実務に役立つノウハウを提供できれば、幸いです。
@@ -142,7 +142,6 @@ livedoorのニュース記事を対応するカテゴリに分類していくタ
 そのためのデータセットを準備します。 
 
 ```python
-from pprint import pprint
 import os
 
 #
@@ -194,14 +193,15 @@ df = pd.read_table(
     names=['filename', 'label', 'category', 'text']
     ).sample(frac=1, random_state=0).reset_index(drop=True)
 ```
-
-最後にデータを学習・検証・テスト用=7:2:1に分割して完了です。 
+最後にデータを学習:テスト用=8:2に分割して完了です。 
 
 ```python
+#
+# データを学習・テスト用=8:2に分割
+#
 N = len(df)
-train_df = df[:int(N * 0.7)] # 学習
-dev_df = df[len(train_df): len(train_df) + int(N * 0.2)] # 検証
-test_df = df[len(train_df) + len(dev_df):] # テスト
+train_df = df[:int(N * 0.8)] # 学習
+test_df = df[int(N * 0.8):] # テスト
 ```
 
 ### ベースラインを決める
@@ -231,15 +231,57 @@ sklearnのロジスティック回帰をツールとして使う。
 なお、ベースラインの前処理コードは、以下を使います。
 
 ```python
+from unicodedata import normalize
+from sudachipy import tokenizer
+from sudachipy import dictionary
+import string
 
+from sklearn.feature_extraction.text import CountVectorizer
+
+#
+# 前処理
+#
+class TextPreprocessing(object):
+    def __init__(self):
+        self.tokenizer_obj = dictionary.Dictionary().create()
+        self.mode = tokenizer.Tokenizer.SplitMode.A
+        self.vectorizer = CountVectorizer()
+
+    #
+    # テキストに対して前処理を実施
+    #
+    def _preprocess(self, text): 
+        # トークン化
+        morphs = []
+        for m in self.tokenizer_obj.tokenize(text, self.mode):
+            morphs.append(m.surface())
+
+        return " ".join(morphs)
+
+    #
+    # 文章データの行列を生成(各文章に対するベクトル一覧)
+    #
+    def get_matrix(self, text_series, mode='train'):
+        text_series = text_series.map(self._preprocess)
+
+        if mode == 'train':
+            # 辞書作成と文章データの行列を作成
+            bag = self.vectorizer.fit_transform(text_series)
+        else:
+            # 文章データの行列を作成 ※ 辞書はtrainでつくったものを使用
+            bag = self.vectorizer.transform(text_series)
+
+        return bag
+
+tp = TextPreprocessing()
+tp._preprocess("【Sports Watch】ノムさん、斎藤佑樹のニックネームを考案!?")
 ```
-
 
 ### ベースラインの評価
 
 ベースラインに対して、「より良い」モデルの基準に対応する評価を実施します。
 
-まず性能ですが、性能は検証データに対する正解率(accuracy)評価します。 
+性能は、テストデータに対する正解率(accuracy)評価します。 
 
 処理速度は、以下の時間を評価対象します。 
 
@@ -249,66 +291,260 @@ sklearnのロジスティック回帰をツールとして使う。
 リソース使用量は、Colaboratoryでの定量取得が難しいため定量評価はなしとします。 
 
 上記の条件で、評価した結果以下のとおりとなりました。 
+※ 処理時間は、`%%time`で計測した、`user`の時刻としています。　
+
+* 学習データに対する前処理の時間: 14.2s
+* 学習時間: 82s
+* 正解率: 0.8005427408412483
+
+評価に使ったコードは、それぞれ以下の通りです。　
 
 ```python
+%%time
+tp = TextPreprocessing()
+bag = tp.get_matrix(train_df.text)
+train_X = bag.toarray()
+train_y = pd.Series(train_df.label)
 ```
 
 ```python
+%%time
+from sklearn.linear_model import LogisticRegression
+
+clf = LogisticRegression()
+clf.fit(train_X, train_y)
 ```
 
 ```python
+bag_test = tp.get_matrix(test_df.text, mode='test')
+test_X = bag_test.toarray()
+test_y = pd.Series(test_df.label)
+score = clf.score(test_X, test_y)
+print(score)
 ```
 
 ### スパース行列の利用
 
-`train_X`は、学習対象の文章をBag-of-Wordに変換したベクトルの集合です。 
+ここから改善タスクに入っていきます。 
+まずは、文章行列である`train_X`をスパース行列に変更する変更を行います。 
+
+前提知識として、`train_X`は、学習対象の文章をBag-of-Wordに変換したベクトルの集合です。 
 この行列は性質上0を大量に含んだ行列なります。
 
-この特徴を持つ行列は、`scipy`のスパース行列に変換すると、メモリ削減・処理速度向上の効果があります。 
-実際にスパース行列に変換してモデルの学習をしなおしたところ、``と大きく改善することがわかります。 
-
 ```python
+print(train_X)
+# -> out
+#[[0 0 0 ... 0 0 0]
+# [0 0 0 ... 0 0 0]
+# [0 0 0 ... 0 0 0]
+# ...
+# [1 0 0 ... 0 0 0]
+# [0 0 0 ... 0 0 0]
+# [0 0 0 ... 0 0 0]]
 
 ```
+
+この特徴を持つ行列は、`scipy`のスパース行列に変換すると、メモリ削減・処理速度向上の効果があります。 
+そこで、スパース行列に変換したうえで、学習させてみます。
+
+```python
+from scipy.sparse import lil_matrix
+from sklearn.linear_model import LogisticRegression
+
+train_X = lil_matrix(train_X) # スパース行列に変換
+
+clf = LogisticRegression()
+clf.fit(train_X, train_y)
+```
+
+すると学習時間が82s -> 3.6s に大幅に縮まりました。
 
 ### 前処理改善(1)
 
-処理速度とメモリリソース使用量をさらに改善するために、テキストの前処理の改善をしていきます。
-改善ポイントは、**性能に影響を及ばさない範囲**で語彙数を削減することです。
+処理速度とメモリ使用量をさらに改善するために、テキストの前処理の改善をしていきます。
+改善ポイントは、**性能に極力影響を及ばさない範囲**で語彙数を削減することです。
+どの程度を極力とするのかは、タスクによりますが、今回は1%以内と設定します。 
 
 具体的には、以下の改善を実施していきます。
 
-* 記号除去
-* NFKCへの正規化
+* ユニコード正規化
+* 記号などのノイズ除去
 * アルファベットは小文字に統一
-* 品詞選択(数値を除く名詞のみを使用)
+* 品詞選択(名詞のみを使用)
+* 数値除去
 
 ```python
+from unicodedata import normalize
+import string
+from sudachipy import tokenizer
+from sudachipy import dictionary
+
+from sklearn.feature_extraction.text import CountVectorizer
+
+#
+# 前処理
+#
+class TextPreprocessing(object):
+    def __init__(self):
+        self.tokenizer_obj = dictionary.Dictionary().create()
+        self.mode = tokenizer.Tokenizer.SplitMode.A
+        punctuation = string.punctuation + '。、×÷ 【】『』 「」”“'
+        self.noises = str.maketrans(
+            {k: ' ' for k in normalize('NFKC', punctuation)})
+        self.vectorizer = CountVectorizer()
+
+
+    #
+    # ユニコード正規化を実施したうえで、トークン化を実施
+    #
+    def _preprocess(self, text):
+        # unicode正規化と記号除去
+        text = normalize('NFKC', text).lower()
+        text = text.translate(self.noises).strip()
+ 
+        # トークン化
+        morphs = []
+        for m in self.tokenizer_obj.tokenize(text, self.mode):
+            if m.part_of_speech()[0] == '名詞' and m.part_of_speech()[1] != '数詞':
+                morphs.append(m.surface())
+        return " ".join(morphs)
+
+
+    #
+    # 文章データの行列を生成(各文章に対するベクトル一覧)
+    #
+    def get_matrix(self, text_series, mode='train'):
+        text_series = text_series.map(self._preprocess)
+        if mode == 'train':
+            # 辞書作成と文章データの行列を作成
+            bag = self.vectorizer.fit_transform(text_series)
+        else:
+            # 文章データの行列を作成 ※ 辞書はtrainでつくったものを使用
+            bag = self.vectorizer.transform(text_series)
+
+        return bag
 
 ```
+この改善を実施した結果の評価は以下の通りとなっています。 
 
-処理時間が、X->Yに縮まりました。
-性能は若干落ちていますが、1%以内の誤差のため許容とします。　
+* 学習データに対する前処理の時間: 14.2s -> 13.3s
+* 学習時間: 3.6s -> 2.93s
+* 正解率: 0.8005427408412483 -> 0.7930800542740841
 
+わずかですが、前処理や学習時間の短縮に成功しています。 
+性能がやや劣化していますが、1%以内なので許容範囲とします。 
 
 ### 前処理改善(2)
 
-`CountVectorizer`の`max_features`を調整することで、語彙を減らすアプローチをとります。 
-現状は、`max_features`はNoneであるため、学習データの中のすべての語彙が使用されている状態です。 
+`CountVectorizer`の`max_features`を調整することで、語彙を減らすアプローチをとってみましょう。  
+ちなみに、現状は、`max_features`はNoneであるため、学習データの中のすべての語彙が使用されている状態です。 
 
 学習データの語彙数がいくつあるかを調べるには、`CountVectorizer`の`vocabulary_`をみればわかります。 
 
 ```python
+d = tp.vectorizer.vocabulary_
+print(len(d)) # out -> 9463
+```
+語彙数は9463あることがわかりました。
+語彙数を減らせば学習時間を減らすことが期待できますが、正解率が低下するリスクがあります。 
+そこで、1000〜最大(9463)の範囲で正解率がどのくらい変化していくかみていきましょう。
+
+まずは、前処理のクラスにmax_featuresを指定できるように変更をいれます。 
+
+```
+from unicodedata import normalize
+import string
+from sudachipy import tokenizer
+from sudachipy import dictionary
+
+from sklearn.feature_extraction.text import CountVectorizer
+
+#
+# 前処理
+#
+class TextPreprocessing(object):
+    def __init__(self, max_features=None):
+        self.tokenizer_obj = dictionary.Dictionary().create()
+        self.mode = tokenizer.Tokenizer.SplitMode.A
+        punctuation = string.punctuation + '。、×÷ 【】『』 「」”“'
+        self.noises = str.maketrans(
+            {k: ' ' for k in normalize('NFKC', punctuation)})
+        # max_featuresを追加
+        self.vectorizer = CountVectorizer(max_features = max_features)
+
+
+    #
+    # ユニコード正規化を実施したうえで、トークン化を実施
+    #
+    def _preprocess(self, text):
+        # unicode正規化とノイズ除去
+        text = normalize('NFKC', text).lower()
+        text = text.translate(self.noises).strip()
+
+        # トークン化
+        morphs = []
+        for m in self.tokenizer_obj.tokenize(text, self.mode):
+            if m.part_of_speech()[0] == '名詞' and m.part_of_speech()[1] != '数詞':
+                morphs.append(m.surface())
+        return " ".join(morphs)
+
+
+    #
+    # 文章データの行列を生成(各文章に対するベクトル一覧)
+    #
+    def get_matrix(self, text_series, mode='train'):
+        text_series = text_series.map(self._preprocess)
+        if mode == 'train':
+            # 辞書作成と文章データの行列を作成
+            bag = self.vectorizer.fit_transform(text_series)
+        else:
+            # 文章データの行列を作成 ※ 辞書はtrainでつくったものを使用
+            bag = self.vectorizer.transform(text_series)
+
+        return bag
 
 ```
 
-`10248`件でした。
+1000から10000まで1000きざみで正解率の変化をみていきます。 
 
-では、1000〜10000の範囲で正解率がどのくらい変化していくかみていきます。
+```python
+from sklearn.linear_model import LogisticRegression
+import matplotlib.pyplot as plt
 
+candidate = list(range(1000, 11000, 1000))
+clf = LogisticRegression()
+scores = []
+for max_features in candidate:
+    tp = TextPreprocessing(max_features=max_features)
+    bag = tp.get_matrix(train_df.text)
+    train_X = bag.toarray()
+    train_y = pd.Series(train_df.label)
+    clf.fit(lil_matrix(train_X), train_y)
+
+    bag_test = tp.get_matrix(test_df.text, mode='test')
+    test_X = bag_test.toarray()
+    test_y = pd.Series(test_df.label)
+    scores.append(clf.score(lil_matrix(test_X), test_y))
+
+plt.plot(candidate, scores, label='socre')
+plt.legend()
+```
+
+<グラフ>
 
 グラフを見ると語彙数が4000件で頭打ちになっていることがわかります。 
-そこで、`max_features`は4000件としてあらためて処理速度と正解率を計測します。 
+
+よって、`max_features`は4000件とします。
+
+`max_features`は4000件としたときの評価は以下の通りです。
+
+* 学習データに対する前処理の時間: 13.3s -> 13.8s
+* 学習時間: 2.93s -> 1.7s
+* 正解率: 0.7930800542740841 -> 0.7991858887381276
+
+前処理の処理時間が若干上昇してしまっています。 
+`CountVectorizer`に`max_features`を指定したことで、処理内容が増えたことが考えられます。 
+ただ、学習時間は減少しているので、トータルの処理時間は短縮できています。
 
 ### ハイパーパラメータのチューニング
 
@@ -321,57 +557,142 @@ sklearnのロジスティック回帰をツールとして使う。
 * C
 * max_iter
 
-まずは、Cです。
-これは正則化の逆数を表すパラメーターで過学習を制御するためのパラメータです。 
+Cは正則化の逆数を表すパラメーターで過学習を制御するためのパラメータです。 
 デフォルトが1.0で、1.0付近の値で最も高い正解率が出るパラメータを選定していきます。 
 
 ```python
+import matplotlib.pyplot as plt
 
+C_candidate = [0.5, 1.0, 1.5, 2.0]
+scores = []
+train_X=lil_matrix(train_X)
+test_X=lil_matrix(test_X)
+
+
+for c in C_candidate:
+    clf = LogisticRegression(C=c)
+    clf.fit(train_X, train_y)
+    scores.append(clf.score(test_X, test_y))
+
+plt.plot(C_candidate, scores, label='score')
+plt.legend()
 ```
 
-結果としてデフォルトの1.0が最もよい結果となりました。　
+<図>
+
+デフォルトの1.0付近が最もよい結果となりそうです。
 
 次にmax_iterです。　
 最大学習回数を示すパラメーターです。
 
 デフォルトが100であったので、100前後の数値で検証してきます。
+
+```
+import matplotlib.pyplot as plt
+
+iter_candidate = [80, 90, 100, 110, 120]
+scores = []
+train_X=lil_matrix(train_X)
+test_X=lil_matrix(test_X)
+
+for iter in iter_candidate:
+    clf = LogisticRegression(max_iter=iter)
+    clf.fit(train_X, train_y)
+    scores.append(clf.score(test_X, test_y))
+
+plt.plot(iter_candidate, scores, label='score')
+plt.legend()
+```
 すると下記の通り、まったく同じ正解率となりました。　
+<図>
 
+そこで、もう少しmax_iterの範囲を落として、`[30, 40, 50, 60, 70, 80]`で検証してみます。
+すると50付近で頭打ちになることがわかりました。　
 
-
-そこで、もう少しmax_iterの値を落として検証しています。　
-
-
-
-50付近で頭打ちになることがわかりました。　
+<図>
 
 
 ### グリッドサーチによるチューニング
 
-最後に、グリッドサーチによるハイパーパラメータの選択をします。　
-TODO: グリッドサーチの説明 　
+より良いハイパーパラメータを選定するため、グリッドサーチによるハイパーパラメータを絞り込みます。　
+
+前の結果までで、C=1.0, max_iter=50付近で最大の正解率が得られることがわかってます。
+なので、C=1.0, max_iter=50付近の値で組み合わせを選択し、最大の正解率を得られるパラメーターを探索します。
+
+```python
+import itertools
+import warnings
+
+warnings.simplefilter('ignore')
+train_X=lil_matrix(train_X)
+test_X=lil_matrix(test_X)
+
+#
+# グリッドサーチによるパラメーター探索を実装した関数
+#
+def search_best_param(grid_param,  estimator, verbose=False):
+    best_acc = 0
+    best_param = {}
+    product = [x for x in itertools.product(*grid_param.values())]
+    params = [dict(zip(grid_param.keys(), r)) for r in product]
+    for param in params:
+        estimator.set_params(**param)
+        estimator.fit(train_X, train_y)
+        acc = clf.score(test_X, test_y)
+        if verbose:
+            print(param, acc)
+        if  acc > best_acc:
+            best_acc = acc
+            best_param = param
+    return best_param, best_acc
 
 
-前の結果までで、C=1.0, max_iter=50付近で最大の正解率が得られることがわかってるので、
-前後の値に絞って、検証してきます。　
 
-``python
+candidate = []
+# 探索するパラメーターの組み合わせ
+grid_param = {
+    "C": [0.8, 0.9, 1.0, 1.1, 1.2],
+    "max_iter": [45, 50, 55]
+    }
+clf = LogisticRegression()
+candidate.append(search_best_param(grid_param, clf))
 
+best_param, best_score = sorted(candidate, key=lambda x: x[1], reverse=True)[0]
+print(best_param, best_score) # 最大スコアを出したパラメーターとスコア
 ```
 
+探索の結果、`best_param`が`{'C': 0.8, 'max_iter': 50}`でスコアは0.7998643147896879となりました。 
+若干の改善ですが、チューニング前よりスコアが向上しています。 
 
-性能だけでなく、処理改善の効果も出ています。
-処理性能に改善があったのは、max_iterの値をデフォルトより小さくできたためです。 
+また、このパラメータで学習を実施すると学習時間は、短縮していることがわかります。
+`max_iter`の値をデフォルトより小さくできたためです。 
 
+評価をまとめると、以下のとおりです。 
+
+* 学習データに対する前処理の時間(処理内容に変更なし): 13.8s -> 13.8s 
+* 学習時間: 1.7s -> 1.15s
+* 正解率: 0.7991858887381276 -> 0.7998643147896879
 
 ### まとめ　
 
-最終的にベースラインに対して以下の成果を得ることができました。　
+今回は、「より良い」機械学習モデルの構築として、処理速度改善とリソース使用量削減に取り組みました。
+具体的に実施した内容は以下の通りです。
 
-かなり基礎的な内容でしたが、業務の役にたてば幸いです。 
+* スパース行列の利用
+* 前処理改善
+* ハイパーパラメータのチューニング
 
+最終評価として、ベースラインに対して以下の成果を得ることができました。　
 
+* 学習データに対する前処理の時間(処理内容に変更なし): 14.2s -> 13.8s 
+* 学習時間: 82s -> 1.15s
+* 正解率: 0.8005427408412483-> 0.7998643147896879
 
+処理性能を保ちつつ、学習時間の大幅短縮に成功することができました。 
+また、定量てきな評価はできていないですが、「スパース行列」と「前処理改善」は、
+メメリ使用量の削減につながっています。
+
+かなり基礎的な学習をするとレシピとなりましたが、業務に役立つ情報になっていれば幸いです。 
 
 
 
