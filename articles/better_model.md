@@ -451,7 +451,7 @@ print(len(d)) # out -> 9463
 
 まずは、前処理のクラスにmax_featuresを指定できるように変更をいれます。 
 
-```
+```python
 from unicodedata import normalize
 import string
 from sudachipy import tokenizer
@@ -530,7 +530,7 @@ plt.plot(candidate, scores, label='socre')
 plt.legend()
 ```
 
-<グラフ>
+![max_features](image/max_features.png)
 
 グラフを見ると語彙数が4000件で頭打ちになっていることがわかります。 
 
@@ -578,7 +578,7 @@ plt.plot(C_candidate, scores, label='score')
 plt.legend()
 ```
 
-<図>
+![C](image/C.png)
 
 デフォルトの1.0付近が最もよい結果となりそうです。
 
@@ -604,12 +604,13 @@ plt.plot(iter_candidate, scores, label='score')
 plt.legend()
 ```
 すると下記の通り、まったく同じ正解率となりました。　
-<図>
+
+![max_iter1](image/max_iter1.png)
 
 そこで、もう少しmax_iterの範囲を落として、`[30, 40, 50, 60, 70, 80]`で検証してみます。
 すると50付近で頭打ちになることがわかりました。　
 
-<図>
+![max_iter2](image/max_iter2.png)
 
 
 ### グリッドサーチによるチューニング
