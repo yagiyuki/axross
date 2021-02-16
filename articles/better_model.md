@@ -339,6 +339,7 @@ print(train_X)
 そこで、スパース行列に変換したうえで、学習させてみます。
 
 ```python
+%%time
 from scipy.sparse import lil_matrix
 from sklearn.linear_model import LogisticRegression
 
@@ -416,7 +417,36 @@ class TextPreprocessing(object):
         return bag
 
 ```
+
 この改善を実施した結果の評価は以下の通りとなっています。 
+
+```python
+%%time
+# 学習データに対する前処理
+tp = TextPreprocessing()
+bag = tp.get_matrix(train_df.text)
+train_X = bag.toarray()
+train_y = pd.Series(train_df.label)
+```
+
+```python
+%%time
+# 学習時間
+from scipy.sparse import lil_matrix
+from sklearn.linear_model import LogisticRegression
+
+clf = LogisticRegression()
+clf.fit(lil_matrix(train_X), train_y)
+```
+
+```python
+# 正解率
+bag_test = tp.get_matrix(test_df.text, mode='test')
+test_X = bag_test.toarray()
+test_y = pd.Series(test_df.label)
+score = clf.score(lil_matrix(test_X), test_y)
+print(score)
+```
 
 * 学習データに対する前処理の時間: 14.2s -> 13.3s
 * 学習時間: 3.6s -> 2.93s
@@ -436,7 +466,7 @@ class TextPreprocessing(object):
 d = tp.vectorizer.vocabulary_
 print(len(d)) # out -> 9463
 ```
-語彙数は9463あることがわかりました。   
+語彙数は9463あることがわかりました。 (※ 実行環境により語彙数が異なる可能性があります。)  
 語彙数を減らせば学習時間を減らすことが期待できますが、正解率が低下するリスクがあります。   
 そこで、1000〜最大(9463)の範囲で正解率がどのくらい変化していくかみていきましょう。
 
@@ -528,6 +558,34 @@ plt.legend()
 よって、`max_features`は4000件とします。
 
 `max_features`は4000件としたときの評価は以下の通りです。
+
+```python
+%%time
+# 学習データに対する前処理
+tp = TextPreprocessing(max_features=4000)
+bag = tp.get_matrix(train_df.text)
+train_X = bag.toarray()
+train_y = pd.Series(train_df.label)
+```
+
+```python
+%%time
+# 学習時間
+from scipy.sparse import lil_matrix
+from sklearn.linear_model import LogisticRegression
+
+clf = LogisticRegression()
+clf.fit(lil_matrix(train_X), train_y)
+```
+
+```python
+# 正解率
+bag_test = tp.get_matrix(test_df.text, mode='test')
+test_X = bag_test.toarray()
+test_y = pd.Series(test_df.label)
+score = clf.score(lil_matrix(test_X), test_y)
+print(score)
+```
 
 * 学習データに対する前処理の時間: 13.3s -> 13.8s
 * 学習時間: 2.93s -> 1.7s
@@ -660,6 +718,25 @@ print(best_param, best_score) # 最大スコアを出したパラメーターと
 `max_iter`の値をデフォルトより小さくできたためです。 
 
 評価をまとめると、以下のとおりです。 
+
+```python
+%%time
+# 学習時間
+from scipy.sparse import lil_matrix
+from sklearn.linear_model import LogisticRegression
+
+clf = LogisticRegression(**best_param) ## グリッドサーチで選択したベストパラムを指定
+clf.fit(lil_matrix(train_X), train_y)
+```
+
+```python
+# 正解率
+bag_test = tp.get_matrix(test_df.text, mode='test')
+test_X = bag_test.toarray()
+test_y = pd.Series(test_df.label)
+score = clf.score(lil_matrix(test_X), test_y)
+print(score)
+```
 
 * 学習データに対する前処理の時間(処理内容に変更なし): 13.8s -> 13.8s 
 * 学習時間: 1.7s -> 1.15s
